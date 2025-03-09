@@ -18,22 +18,20 @@ COHERE_TEXT_ENDPOINT = st.secrets["COHERE_TEXT_EP"]  # e.g. "https://api.cohere.
 
 # Gemini configuration for image generation
 GEMINI_API_KEY = st.secrets["API-KEY"]
-GEMINI_IMAGE_ENDPOINT = st.secrets["EP"]  # Ensure this endpoint returns image data
+GEMINI_IMAGE_ENDPOINT = st.secrets["EP"]  # This endpoint should return image data
 
 # --- Helper: Robust JSON Extraction ---
 def extract_json(text):
     """
     Attempt to extract a valid JSON substring from a text response.
-    Tries both object and array patterns.
+    Tries both object ({...}) and array ([...]) patterns.
     """
-    # Try matching a JSON object: {...}
     obj_match = re.search(r'({.*})', text, re.DOTALL)
     if obj_match:
         try:
             return json.loads(obj_match.group(1))
         except Exception:
             pass
-    # Try matching a JSON array: [...]
     arr_match = re.search(r'(\[.*\])', text, re.DOTALL)
     if arr_match:
         try:
@@ -176,16 +174,17 @@ def generate_slide_outline(analysis_text):
     try:
         slides = json.loads(outline_text)
     except json.JSONDecodeError as e:
-        st.error("Error parsing JSON from Cohere response:")
+        st.error("Error parsing JSON from Cohere response. Raw output:")
         st.text(outline_text)
         try:
             slides = extract_json(outline_text)
+            st.warning("JSON was extracted from the response using a regex fallback.")
         except Exception as e2:
-            st.error("Failed to extract valid JSON from the response.")
-            raise e2
-    return slides
+            st.error("Failed to extract valid JSON. Using raw output as Markdown instead.")
+            slides = None  # signal that parsing failed
+    return slides, outline_text
 
-# --- Convert JSON Outline to Markdown ---
+# --- Convert Outline to Markdown ---
 def convert_outline_to_md(slides):
     md = ""
     for idx, slide in enumerate(slides, start=1):
@@ -233,18 +232,16 @@ def main():
     if analysis_text:
         if st.button("Generate Slide Outline and Markdown"):
             with st.spinner("Generating slide outline..."):
-                try:
-                    slides_outline = generate_slide_outline(analysis_text)
-                except Exception as e:
-                    st.error(f"Failed to generate slide outline: {e}")
-                    return
-            st.success("Slide outline generated successfully!")
-            st.json(slides_outline)
-            
-            # Convert JSON outline to Markdown
-            md_output = convert_outline_to_md(slides_outline)
-            st.markdown("### Slide Outline in Markdown")
-            st.markdown(md_output)
+                slides, raw_outline = generate_slide_outline(analysis_text)
+            if slides is not None:
+                st.success("Slide outline generated and parsed as JSON successfully!")
+                md_output = convert_outline_to_md(slides)
+                st.markdown("### Slide Outline in Markdown")
+                st.markdown(md_output)
+            else:
+                st.warning("Using raw Cohere output as Markdown since JSON parsing failed:")
+                st.markdown("### Raw Outline Markdown")
+                st.markdown(raw_outline)
 
 if __name__ == "__main__":
     main()
