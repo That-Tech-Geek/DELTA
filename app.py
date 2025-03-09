@@ -11,8 +11,10 @@ import PyPDF2  # For PDF parsing
 
 # --- Configuration ---
 GEMINI_API_KEY = st.secrets["API-KEY"]
+# Use separate endpoints if available; here we assume they are set correctly in secrets.
 GEMINI_TEXT_ENDPOINT = st.secrets["EP"]
 GEMINI_IMAGE_ENDPOINT = st.secrets["EP"]
+
 # --- Gemini API Functions ---
 
 def gemini_text_generate(prompt, max_tokens=150, temperature=0.6):
@@ -25,8 +27,8 @@ def gemini_text_generate(prompt, max_tokens=150, temperature=0.6):
         "max_tokens": max_tokens,
         "temperature": temperature
     }
-    response = requests.post(GEMINI_TEXT_ENDPOINT, headers=headers, json=payload)
     try:
+        response = requests.post(GEMINI_TEXT_ENDPOINT, headers=headers, json=payload)
         response.raise_for_status()
     except Exception as e:
         st.error("Request to Gemini API failed.")
@@ -61,8 +63,8 @@ def gemini_image_generate(prompt, width=512, height=512):
         "width": width,
         "height": height
     }
-    response = requests.post(GEMINI_IMAGE_ENDPOINT, headers=headers, json=payload)
     try:
+        response = requests.post(GEMINI_IMAGE_ENDPOINT, headers=headers, json=payload)
         response.raise_for_status()
     except Exception as e:
         st.error("Request to Gemini Image API failed.")
@@ -205,6 +207,7 @@ def main():
     st.title("AI-Driven Presentation Generator")
     st.write("Paste your compiled analysis below (including research, data, and insights).")
 
+    # Option to either upload a PDF or paste text
     uploaded_file = st.file_uploader("Upload your analysis document (PDF file)", type="pdf")
     if uploaded_file is not None:
         try:
