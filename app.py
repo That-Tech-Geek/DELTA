@@ -7,17 +7,15 @@ import streamlit as st
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
-import PyPDF2  # Added for PDF parsing
+import PyPDF2  # For PDF parsing
 
 # --- Configuration ---
-# Set your Gemini API key (or load from env variable)
 GEMINI_API_KEY = st.secrets["API-KEY"]
-# Hypothetical Gemini endpoints (adjust according to actual docs)
 GEMINI_TEXT_ENDPOINT = st.secrets["EP"]
 GEMINI_IMAGE_ENDPOINT = st.secrets["EP"]
 # --- Gemini API Functions ---
 
-def gemini_text_generate(prompt, max_tokens=300000000, temperature=0.6):
+def gemini_text_generate(prompt, max_tokens=150, temperature=0.6):
     headers = {
         "Authorization": f"Bearer {GEMINI_API_KEY}",
         "Content-Type": "application/json"
@@ -28,9 +26,30 @@ def gemini_text_generate(prompt, max_tokens=300000000, temperature=0.6):
         "temperature": temperature
     }
     response = requests.post(GEMINI_TEXT_ENDPOINT, headers=headers, json=payload)
-    response.raise_for_status()
-    data = response.json()
-    return data.get("generated_text", "").strip()
+    try:
+        response.raise_for_status()
+    except Exception as e:
+        st.error("Request to Gemini API failed.")
+        st.error(str(e))
+        raise
+
+    raw_text = response.text.strip()
+    if not raw_text:
+        st.error("Gemini API returned an empty response.")
+        raise ValueError("Gemini API returned an empty response.")
+    
+    try:
+        data = response.json()
+    except json.JSONDecodeError as e:
+        st.error("Failed to parse JSON from Gemini API. Raw response:")
+        st.text(raw_text)
+        raise e
+
+    generated_text = data.get("generated_text", "").strip()
+    if not generated_text:
+        st.error("Gemini API did not return any generated text.")
+        raise ValueError("Gemini API did not return any generated text.")
+    return generated_text
 
 def gemini_image_generate(prompt, width=512, height=512):
     headers = {
@@ -43,7 +62,12 @@ def gemini_image_generate(prompt, width=512, height=512):
         "height": height
     }
     response = requests.post(GEMINI_IMAGE_ENDPOINT, headers=headers, json=payload)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except Exception as e:
+        st.error("Request to Gemini Image API failed.")
+        st.error(str(e))
+        raise
     return response.content
 
 # --- Chart Generation ---
@@ -58,7 +82,6 @@ def generate_chart(chart_info):
         "labels": ["Label1", "Label2", ...],
         "values": [val1, val2, ...]
       }
-    The chart uses a dark background and indigo elements.
     """
     chart_type = chart_info.get("type", "bar")
     title = chart_info.get("title", "")
@@ -66,7 +89,7 @@ def generate_chart(chart_info):
     values = chart_info.get("values", [])
     
     plt.style.use('dark_background')
-    plt.figure(figsize=(4,3))
+    plt.figure(figsize=(4, 3))
     
     if chart_type == "bar":
         plt.bar(labels, values, color='#4B0082')
@@ -85,10 +108,6 @@ def generate_chart(chart_info):
 # --- Deep Research Generation ---
 
 def generate_deep_research_content(slide_title, slide_content):
-    """
-    Generates deep research insights for a given slide.
-    The prompt instructs Gemini to output bullet points of research insights and references.
-    """
     prompt = (
         "You are a consultant at a top consulting firm. Provide a deep research summary for a client presentation slide with the title "
         f"'{slide_title}' and content: '{slide_content}'. Include key insights, critical analysis, and relevant references as bullet points. "
@@ -100,16 +119,8 @@ def generate_deep_research_content(slide_title, slide_content):
 # --- Outline Generation ---
 
 def generate_slide_outline(analysis_text):
-    """
-    Uses Google Gemini to generate a slide deck outline based on the analysis.
-    Each slide object should have:
-      - "title": Slide title,
-      - "content": Slide text,
-      - Optional "image_prompt" for images,
-      - Optional "chart" dict with keys "type", "title", "labels", "values".
-    """
     prompt = (
-        "You are an expert presentation designer. Based on the following analysis, design a complete slide deck outline "
+        "You are a consultant at a top consulting firm. Based on the following analysis, design a complete slide deck outline "
         "with natural flow. For each slide, provide a 'title' and 'content'. "
         "If an image would enhance the slide, include an 'image_prompt' key with a brief description. "
         "If a chart is needed, include a 'chart' key with an object specifying 'type' (bar or line), 'title', 'labels', and 'values'. "
@@ -128,31 +139,19 @@ def generate_slide_outline(analysis_text):
 # --- PowerPoint Generation ---
 
 def create_ppt_from_outline(slides, filename="generated_presentation.pptx"):
-    """
-    Creates a PowerPoint presentation using python-pptx.
-    Applies a black background, indigo accents, and uses the Lexend font.
-    Each slide includes:
-      - Title and content,
-      - An extra research textbox with deep research insights,
-      - Optional image (via Gemini) and optional chart (via matplotlib).
-    """
     prs = Presentation()
-
     for slide in slides:
         title_text = slide.get("title", "Untitled Slide")
         content_text = slide.get("content", "")
         image_prompt = slide.get("image_prompt")
         chart_info = slide.get("chart")
 
-        # Use a blank layout for full control (layout index 5 is often blank)
         slide_layout = prs.slide_layouts[5]
         ppt_slide = prs.slides.add_slide(slide_layout)
-
-        # Set slide background to black
         ppt_slide.background.fill.solid()
         ppt_slide.background.fill.fore_color.rgb = RGBColor(0, 0, 0)
 
-        # Add title textbox at the top
+        # Title textbox
         title_box = ppt_slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(9), Inches(1))
         title_tf = title_box.text_frame
         title_tf.text = title_text
@@ -161,9 +160,9 @@ def create_ppt_from_outline(slides, filename="generated_presentation.pptx"):
                 run.font.name = "Lexend"
                 run.font.bold = True
                 run.font.size = Pt(44)
-                run.font.color.rgb = RGBColor(75, 0, 130)  # Indigo
+                run.font.color.rgb = RGBColor(75, 0, 130)
 
-        # Add content textbox below title
+        # Content textbox
         content_box = ppt_slide.shapes.add_textbox(Inches(0.5), Inches(1.2), Inches(9), Inches(1.5))
         content_tf = content_box.text_frame
         content_tf.text = content_text
@@ -171,9 +170,9 @@ def create_ppt_from_outline(slides, filename="generated_presentation.pptx"):
             for run in paragraph.runs:
                 run.font.name = "Lexend"
                 run.font.size = Pt(24)
-                run.font.color.rgb = RGBColor(255, 255, 255)  # White
+                run.font.color.rgb = RGBColor(255, 255, 255)
 
-        # Generate deep research insights and add as an extra textbox
+        # Research textbox
         research_summary = generate_deep_research_content(title_text, content_text)
         research_box = ppt_slide.shapes.add_textbox(Inches(0.5), Inches(2.8), Inches(9), Inches(1))
         research_tf = research_box.text_frame
@@ -182,22 +181,21 @@ def create_ppt_from_outline(slides, filename="generated_presentation.pptx"):
             for run in paragraph.runs:
                 run.font.name = "Lexend"
                 run.font.size = Pt(18)
-                run.font.color.rgb = RGBColor(211, 211, 211)  # Light grey
+                run.font.color.rgb = RGBColor(211, 211, 211)
 
-        # If an image prompt exists, generate and insert the image
+        # Optional image
         if image_prompt:
             st.info(f"Generating image for slide: {title_text}")
             image_data = gemini_image_generate(image_prompt)
             image_stream = BytesIO(image_data)
             ppt_slide.shapes.add_picture(image_stream, Inches(6), Inches(3.5), width=Inches(3))
 
-        # If chart info exists, generate chart and insert it
+        # Optional chart
         if chart_info:
             st.info(f"Generating chart for slide: {title_text}")
             chart_stream = generate_chart(chart_info)
             ppt_slide.shapes.add_picture(chart_stream, Inches(0.5), Inches(3.5), width=Inches(4))
 
-    # Save the presentation to a file
     prs.save(filename)
     return filename
 
@@ -207,10 +205,8 @@ def main():
     st.title("AI-Driven Presentation Generator")
     st.write("Paste your compiled analysis below (including research, data, and insights).")
 
-    # Option to either upload a file or paste text
     uploaded_file = st.file_uploader("Upload your analysis document (PDF file)", type="pdf")
     if uploaded_file is not None:
-        # --- PDF Parsing Logic ---
         try:
             pdf_reader = PyPDF2.PdfReader(uploaded_file)
             analysis_text = ""
@@ -233,7 +229,7 @@ def main():
                     st.error(f"Failed to generate slide outline: {e}")
                     return
             st.success("Slide outline generated successfully!")
-            st.json(slides_outline)  # Display the outline for review
+            st.json(slides_outline)
 
             with st.spinner("Creating PowerPoint presentation..."):
                 try:
@@ -242,7 +238,6 @@ def main():
                     st.error(f"Failed to create presentation: {e}")
                     return
             st.success("Presentation created successfully!")
-            # Provide download link for the generated PPTX file
             with open(ppt_filename, "rb") as f:
                 st.download_button(
                     label="Download Presentation",
