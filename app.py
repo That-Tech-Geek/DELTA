@@ -13,9 +13,8 @@ import PyPDF2  # Added for PDF parsing
 # Set your Gemini API key (or load from env variable)
 GEMINI_API_KEY = st.secrets["API-KEY"]
 # Hypothetical Gemini endpoints (adjust according to actual docs)
-GEMINI_TEXT_ENDPOINT = "https://api.google.com/gemini/v1/text/generate"
-GEMINI_IMAGE_ENDPOINT = "https://api.google.com/gemini/v1/image/generate"
-
+GEMINI_TEXT_ENDPOINT = st.secrets["EP"]
+GEMINI_IMAGE_ENDPOINT = st.secrets["EP"]
 # --- Gemini API Functions ---
 
 def gemini_text_generate(prompt, max_tokens=300000000, temperature=0.6):
