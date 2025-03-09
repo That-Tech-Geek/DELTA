@@ -12,51 +12,58 @@ import PyPDF2  # For PDF parsing
 from bs4 import BeautifulSoup  # For HTML parsing
 
 # --- Configuration ---
+# Cohere configuration for text generation
+COHERE_API_KEY = st.secrets["COHERE_API_KEY"]
+COHERE_TEXT_ENDPOINT = st.secrets["COHERE_TEXT_EP"]  # e.g. "https://api.cohere.ai/generate"
+
+# Gemini configuration for image generation
 GEMINI_API_KEY = st.secrets["API-KEY"]
-# Ensure these endpoints point to the correct Gemini API endpoints.
-GEMINI_TEXT_ENDPOINT = st.secrets["EP"]
-GEMINI_IMAGE_ENDPOINT = st.secrets["EP"]
+GEMINI_IMAGE_ENDPOINT = st.secrets["EP"]  # Ensure this endpoint returns image data
 
-# --- Gemini API Functions ---
+# --- Cohere Text Generation Function ---
 
-def gemini_text_generate(prompt, max_tokens=150, temperature=0.6):
+def cohere_text_generate(prompt, max_tokens=150, temperature=0.6):
     headers = {
-        "Authorization": f"Bearer {GEMINI_API_KEY}",
+        "Authorization": f"Bearer {COHERE_API_KEY}",
         "Content-Type": "application/json"
     }
     payload = {
+        "model": "command-xlarge-nightly",  # You can adjust the model as needed
         "prompt": prompt,
         "max_tokens": max_tokens,
         "temperature": temperature
     }
     try:
-        response = requests.post(GEMINI_TEXT_ENDPOINT, headers=headers, json=payload)
+        response = requests.post(COHERE_TEXT_ENDPOINT, headers=headers, json=payload)
         response.raise_for_status()
     except Exception as e:
-        st.error("Request to Gemini API failed.")
+        st.error("Request to Cohere API failed.")
         st.error(str(e))
         raise
 
     raw_text = response.text.strip()
     if not raw_text:
-        st.error("Gemini API returned an empty response.")
-        raise ValueError("Gemini API returned an empty response.")
+        st.error("Cohere API returned an empty response.")
+        raise ValueError("Cohere API returned an empty response.")
 
+    # Check the Content-Type header for JSON
     content_type = response.headers.get("Content-Type", "").lower()
     if "application/json" in content_type:
         try:
             data = response.json()
         except json.JSONDecodeError as e:
-            st.error("Failed to parse JSON from Gemini API. Raw response:")
+            st.error("Failed to parse JSON from Cohere API. Raw response:")
             st.text(raw_text)
             raise e
-        generated_text = data.get("generated_text", "").strip()
-        if not generated_text:
-            st.error("Gemini API did not return any generated text.")
-            raise ValueError("Gemini API did not return any generated text.")
+        # Cohere returns a list of generations; we pick the first one.
+        try:
+            generated_text = data["generations"][0]["text"].strip()
+        except (KeyError, IndexError) as e:
+            st.error("Cohere API did not return any generated text.")
+            raise ValueError("Cohere API did not return any generated text.") from e
         return generated_text
     elif "text/html" in content_type or raw_text.lower().startswith("<!doctype html"):
-        # Parse HTML to extract text
+        # If HTML, parse it to extract text
         soup = BeautifulSoup(raw_text, "html.parser")
         parsed_text = soup.get_text(separator="\n", strip=True)
         if not parsed_text:
@@ -65,6 +72,8 @@ def gemini_text_generate(prompt, max_tokens=150, temperature=0.6):
         return parsed_text
     else:
         return raw_text
+
+# --- Gemini Image Generation Function ---
 
 def gemini_image_generate(prompt, width=512, height=512):
     headers = {
@@ -135,7 +144,7 @@ def generate_deep_research_content(slide_title, slide_content):
         f"'{slide_title}' and content: '{slide_content}'. Include key insights, critical analysis, and relevant references as bullet points. "
         "Output only the bullet points."
     )
-    research_text = gemini_text_generate(prompt, max_tokens=150, temperature=0.5)
+    research_text = cohere_text_generate(prompt, max_tokens=150, temperature=0.5)
     return research_text
 
 # --- Outline Generation ---
@@ -149,13 +158,13 @@ def generate_slide_outline(analysis_text):
         "Output a valid JSON array with no extra commentary.\n\n"
         "Analysis:\n" + analysis_text + "\n\nOutput the JSON array only."
     )
-    outline_text = gemini_text_generate(prompt, max_tokens=400)
+    outline_text = cohere_text_generate(prompt, max_tokens=400)
     try:
         slides = json.loads(outline_text)
     except json.JSONDecodeError as e:
-        st.error("Error parsing JSON from Gemini response:")
+        st.error("Error parsing JSON from Cohere response:")
         st.text(outline_text)
-        # Attempt to extract a JSON substring from the response using regex
+        # Attempt to extract a JSON substring using regex
         json_match = re.search(r'(\[.*\])', outline_text, re.DOTALL)
         if json_match:
             try:
