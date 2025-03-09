@@ -11,7 +11,7 @@ import PyPDF2  # For PDF parsing
 
 # --- Configuration ---
 GEMINI_API_KEY = st.secrets["API-KEY"]
-# Use separate endpoints if available; here we assume they are set correctly in secrets.
+# These endpoints must point to the correct Gemini API endpoints.
 GEMINI_TEXT_ENDPOINT = st.secrets["EP"]
 GEMINI_IMAGE_ENDPOINT = st.secrets["EP"]
 
@@ -36,10 +36,18 @@ def gemini_text_generate(prompt, max_tokens=150, temperature=0.6):
         raise
 
     raw_text = response.text.strip()
+    # Check if the response is empty
     if not raw_text:
         st.error("Gemini API returned an empty response.")
         raise ValueError("Gemini API returned an empty response.")
-    
+
+    # Check Content-Type header for JSON
+    content_type = response.headers.get("Content-Type", "")
+    if "application/json" not in content_type:
+        st.error("Expected JSON response but received non-JSON content. Raw response:")
+        st.text(raw_text)
+        raise ValueError("Non-JSON response received from Gemini API.")
+
     try:
         data = response.json()
     except json.JSONDecodeError as e:
@@ -70,7 +78,15 @@ def gemini_image_generate(prompt, width=512, height=512):
         st.error("Request to Gemini Image API failed.")
         st.error(str(e))
         raise
-    return response.content
+
+    # For image responses, we may not expect JSON.
+    # If the response returns HTML, that indicates an error.
+    raw_data = response.content
+    if raw_data.strip().startswith(b"<!doctype html>"):
+        st.error("Expected image data but received HTML. Raw response:")
+        st.text(raw_data.decode("utf-8", errors="replace"))
+        raise ValueError("Non-image response received from Gemini Image API.")
+    return raw_data
 
 # --- Chart Generation ---
 
