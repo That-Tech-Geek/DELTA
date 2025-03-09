@@ -62,7 +62,7 @@ def cohere_text_generate(prompt, max_tokens=150, temperature=0.6):
 
     raw_text = response.text.strip()
     if not raw_text:
-        st.error("Cohere API returned an empty response.")
+        st.error("API Problem: Cohere API returned an empty response.")
         raise ValueError("Cohere API returned an empty response.")
 
     content_type = response.headers.get("Content-Type", "").lower()
@@ -171,17 +171,21 @@ def generate_slide_outline(analysis_text):
         "Analysis:\n" + analysis_text + "\n\nOutput the JSON array only."
     )
     outline_text = cohere_text_generate(prompt, max_tokens=400)
+    # Check if the output is empty:
+    if not outline_text:
+        st.error("API Problem: The API returned an empty output for the slide outline.")
+        raise ValueError("Empty output from API.")
     try:
         slides = json.loads(outline_text)
     except json.JSONDecodeError as e:
-        st.error("Error parsing JSON from Cohere response. Raw output:")
+        st.error("Parsing Problem: The API returned non-empty output that could not be parsed as JSON. Raw output:")
         st.text(outline_text)
         try:
             slides = extract_json(outline_text)
-            st.warning("JSON was extracted from the response using a regex fallback.")
+            st.warning("JSON was extracted using regex fallback.")
         except Exception as e2:
-            st.error("Failed to extract valid JSON. Using raw output as Markdown instead.")
-            slides = None  # signal that parsing failed
+            st.error("Failed to extract valid JSON from the response.")
+            raise e2
     return slides, outline_text
 
 # --- Convert Outline to Markdown ---
@@ -232,10 +236,14 @@ def main():
     if analysis_text:
         if st.button("Generate Slide Outline and Markdown"):
             with st.spinner("Generating slide outline..."):
-                slides, raw_outline = generate_slide_outline(analysis_text)
-            if slides is not None:
+                try:
+                    slides_outline, raw_outline = generate_slide_outline(analysis_text)
+                except Exception as e:
+                    st.error(f"Failed to generate slide outline: {e}")
+                    return
+            if slides_outline:
                 st.success("Slide outline generated and parsed as JSON successfully!")
-                md_output = convert_outline_to_md(slides)
+                md_output = convert_outline_to_md(slides_outline)
                 st.markdown("### Slide Outline in Markdown")
                 st.markdown(md_output)
             else:
