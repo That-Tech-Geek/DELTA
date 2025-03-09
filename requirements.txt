@@ -3,3 +3,4 @@ requests
 matplotlib
 python-pptx
 PyPDF2
+bs4
