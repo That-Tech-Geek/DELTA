@@ -8,10 +8,11 @@ from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 import PyPDF2  # For PDF parsing
+from bs4 import BeautifulSoup  # For HTML parsing
 
 # --- Configuration ---
 GEMINI_API_KEY = st.secrets["API-KEY"]
-# These endpoints must point to the correct Gemini API endpoints.
+# Ensure these endpoints point to the correct Gemini API endpoints.
 GEMINI_TEXT_ENDPOINT = st.secrets["EP"]
 GEMINI_IMAGE_ENDPOINT = st.secrets["EP"]
 
@@ -36,30 +37,35 @@ def gemini_text_generate(prompt, max_tokens=150, temperature=0.6):
         raise
 
     raw_text = response.text.strip()
-    # Check if the response is empty
     if not raw_text:
         st.error("Gemini API returned an empty response.")
         raise ValueError("Gemini API returned an empty response.")
 
-    # Check Content-Type header for JSON
-    content_type = response.headers.get("Content-Type", "")
-    if "application/json" not in content_type:
-        st.error("Expected JSON response but received non-JSON content. Raw response:")
-        st.text(raw_text)
-        raise ValueError("Non-JSON response received from Gemini API.")
-
-    try:
-        data = response.json()
-    except json.JSONDecodeError as e:
-        st.error("Failed to parse JSON from Gemini API. Raw response:")
-        st.text(raw_text)
-        raise e
-
-    generated_text = data.get("generated_text", "").strip()
-    if not generated_text:
-        st.error("Gemini API did not return any generated text.")
-        raise ValueError("Gemini API did not return any generated text.")
-    return generated_text
+    # Check the Content-Type header
+    content_type = response.headers.get("Content-Type", "").lower()
+    if "application/json" in content_type:
+        try:
+            data = response.json()
+        except json.JSONDecodeError as e:
+            st.error("Failed to parse JSON from Gemini API. Raw response:")
+            st.text(raw_text)
+            raise e
+        generated_text = data.get("generated_text", "").strip()
+        if not generated_text:
+            st.error("Gemini API did not return any generated text.")
+            raise ValueError("Gemini API did not return any generated text.")
+        return generated_text
+    elif "text/html" in content_type or raw_text.lower().startswith("<!doctype html"):
+        # Parse the HTML and extract text
+        soup = BeautifulSoup(raw_text, "html.parser")
+        parsed_text = soup.get_text(separator="\n", strip=True)
+        if not parsed_text:
+            st.error("Parsed HTML is empty.")
+            raise ValueError("Parsed HTML is empty.")
+        return parsed_text
+    else:
+        # Fallback: return raw_text if we don't recognize the content type.
+        return raw_text
 
 def gemini_image_generate(prompt, width=512, height=512):
     headers = {
@@ -79,12 +85,12 @@ def gemini_image_generate(prompt, width=512, height=512):
         st.error(str(e))
         raise
 
-    # For image responses, we may not expect JSON.
-    # If the response returns HTML, that indicates an error.
+    # For image responses, if HTML is returned, extract text to notify the error.
     raw_data = response.content
-    if raw_data.strip().startswith(b"<!doctype html>"):
-        st.error("Expected image data but received HTML. Raw response:")
-        st.text(raw_data.decode("utf-8", errors="replace"))
+    if raw_data.strip().lower().startswith(b"<!doctype html>"):
+        html_text = BeautifulSoup(raw_data, "html.parser").get_text(separator="\n", strip=True)
+        st.error("Expected image data but received HTML. Parsed HTML content:")
+        st.text(html_text)
         raise ValueError("Non-image response received from Gemini Image API.")
     return raw_data
 
