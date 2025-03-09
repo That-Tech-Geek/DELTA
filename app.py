@@ -20,6 +20,28 @@ COHERE_TEXT_ENDPOINT = st.secrets["COHERE_TEXT_EP"]  # e.g. "https://api.cohere.
 GEMINI_API_KEY = st.secrets["API-KEY"]
 GEMINI_IMAGE_ENDPOINT = st.secrets["EP"]  # Ensure this endpoint returns image data
 
+# --- Helper: Robust JSON Extraction ---
+def extract_json(text):
+    """
+    Attempt to extract a valid JSON substring from a text response.
+    Tries both object and array patterns.
+    """
+    # Try matching a JSON object: {...}
+    obj_match = re.search(r'({.*})', text, re.DOTALL)
+    if obj_match:
+        try:
+            return json.loads(obj_match.group(1))
+        except Exception:
+            pass
+    # Try matching a JSON array: [...]
+    arr_match = re.search(r'(\[.*\])', text, re.DOTALL)
+    if arr_match:
+        try:
+            return json.loads(arr_match.group(1))
+        except Exception:
+            pass
+    raise ValueError("No valid JSON could be extracted.")
+
 # --- Cohere Text Generation Function ---
 
 def cohere_text_generate(prompt, max_tokens=150, temperature=0.6):
@@ -28,7 +50,7 @@ def cohere_text_generate(prompt, max_tokens=150, temperature=0.6):
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "command-xlarge-nightly",  # You can adjust the model as needed
+        "model": "command-xlarge-nightly",  # Adjust model as needed
         "prompt": prompt,
         "max_tokens": max_tokens,
         "temperature": temperature
@@ -164,16 +186,11 @@ def generate_slide_outline(analysis_text):
     except json.JSONDecodeError as e:
         st.error("Error parsing JSON from Cohere response:")
         st.text(outline_text)
-        # Attempt to extract a JSON substring using regex
-        json_match = re.search(r'(\[.*\])', outline_text, re.DOTALL)
-        if json_match:
-            try:
-                slides = json.loads(json_match.group(1))
-            except Exception as e2:
-                st.error("Failed to extract JSON using regex.")
-                raise e2
-        else:
-            raise e
+        try:
+            slides = extract_json(outline_text)
+        except Exception as e2:
+            st.error("Failed to extract valid JSON from the response.")
+            raise e2
     return slides
 
 # --- PowerPoint Generation ---
