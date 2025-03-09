@@ -43,7 +43,6 @@ def extract_json(text):
     raise ValueError("No valid JSON could be extracted.")
 
 # --- Cohere Text Generation Function ---
-
 def cohere_text_generate(prompt, max_tokens=150, temperature=0.6):
     headers = {
         "Authorization": f"Bearer {COHERE_API_KEY}",
@@ -68,7 +67,6 @@ def cohere_text_generate(prompt, max_tokens=150, temperature=0.6):
         st.error("Cohere API returned an empty response.")
         raise ValueError("Cohere API returned an empty response.")
 
-    # Check the Content-Type header for JSON
     content_type = response.headers.get("Content-Type", "").lower()
     if "application/json" in content_type:
         try:
@@ -77,7 +75,6 @@ def cohere_text_generate(prompt, max_tokens=150, temperature=0.6):
             st.error("Failed to parse JSON from Cohere API. Raw response:")
             st.text(raw_text)
             raise e
-        # Cohere returns a list of generations; we pick the first one.
         try:
             generated_text = data["generations"][0]["text"].strip()
         except (KeyError, IndexError) as e:
@@ -85,7 +82,6 @@ def cohere_text_generate(prompt, max_tokens=150, temperature=0.6):
             raise ValueError("Cohere API did not return any generated text.") from e
         return generated_text
     elif "text/html" in content_type or raw_text.lower().startswith("<!doctype html"):
-        # If HTML, parse it to extract text
         soup = BeautifulSoup(raw_text, "html.parser")
         parsed_text = soup.get_text(separator="\n", strip=True)
         if not parsed_text:
@@ -96,7 +92,6 @@ def cohere_text_generate(prompt, max_tokens=150, temperature=0.6):
         return raw_text
 
 # --- Gemini Image Generation Function ---
-
 def gemini_image_generate(prompt, width=512, height=512):
     headers = {
         "Authorization": f"Bearer {GEMINI_API_KEY}",
@@ -124,7 +119,6 @@ def gemini_image_generate(prompt, width=512, height=512):
     return raw_data
 
 # --- Chart Generation ---
-
 def generate_chart(chart_info):
     """
     Generates a chart using matplotlib based on chart_info.
@@ -159,7 +153,6 @@ def generate_chart(chart_info):
     return img_stream
 
 # --- Deep Research Generation ---
-
 def generate_deep_research_content(slide_title, slide_content):
     prompt = (
         "You are a consultant at a top consulting firm. Provide a deep research summary for a client presentation slide with the title "
@@ -170,7 +163,6 @@ def generate_deep_research_content(slide_title, slide_content):
     return research_text
 
 # --- Outline Generation ---
-
 def generate_slide_outline(analysis_text):
     prompt = (
         "You are a consultant at a top consulting firm. Based on the following analysis, design a complete slide deck outline "
@@ -193,71 +185,31 @@ def generate_slide_outline(analysis_text):
             raise e2
     return slides
 
-# --- PowerPoint Generation ---
-
-def create_ppt_from_outline(slides, filename="generated_presentation.pptx"):
-    prs = Presentation()
-    for slide in slides:
-        title_text = slide.get("title", "Untitled Slide")
-        content_text = slide.get("content", "")
-        image_prompt = slide.get("image_prompt")
-        chart_info = slide.get("chart")
-
-        slide_layout = prs.slide_layouts[5]
-        ppt_slide = prs.slides.add_slide(slide_layout)
-        ppt_slide.background.fill.solid()
-        ppt_slide.background.fill.fore_color.rgb = RGBColor(0, 0, 0)
-
-        # Title textbox
-        title_box = ppt_slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(9), Inches(1))
-        title_tf = title_box.text_frame
-        title_tf.text = title_text
-        for paragraph in title_tf.paragraphs:
-            for run in paragraph.runs:
-                run.font.name = "Lexend"
-                run.font.bold = True
-                run.font.size = Pt(44)
-                run.font.color.rgb = RGBColor(75, 0, 130)
-
-        # Content textbox
-        content_box = ppt_slide.shapes.add_textbox(Inches(0.5), Inches(1.2), Inches(9), Inches(1.5))
-        content_tf = content_box.text_frame
-        content_tf.text = content_text
-        for paragraph in content_tf.paragraphs:
-            for run in paragraph.runs:
-                run.font.name = "Lexend"
-                run.font.size = Pt(24)
-                run.font.color.rgb = RGBColor(255, 255, 255)
-
-        # Research textbox
-        research_summary = generate_deep_research_content(title_text, content_text)
-        research_box = ppt_slide.shapes.add_textbox(Inches(0.5), Inches(2.8), Inches(9), Inches(1))
-        research_tf = research_box.text_frame
-        research_tf.text = research_summary
-        for paragraph in research_tf.paragraphs:
-            for run in paragraph.runs:
-                run.font.name = "Lexend"
-                run.font.size = Pt(18)
-                run.font.color.rgb = RGBColor(211, 211, 211)
-
-        # Optional image
-        if image_prompt:
-            st.info(f"Generating image for slide: {title_text}")
-            image_data = gemini_image_generate(image_prompt)
-            image_stream = BytesIO(image_data)
-            ppt_slide.shapes.add_picture(image_stream, Inches(6), Inches(3.5), width=Inches(3))
-
-        # Optional chart
-        if chart_info:
-            st.info(f"Generating chart for slide: {title_text}")
-            chart_stream = generate_chart(chart_info)
-            ppt_slide.shapes.add_picture(chart_stream, Inches(0.5), Inches(3.5), width=Inches(4))
-
-    prs.save(filename)
-    return filename
+# --- Convert JSON Outline to Markdown ---
+def convert_outline_to_md(slides):
+    md = ""
+    for idx, slide in enumerate(slides, start=1):
+        title = slide.get("title", "Untitled Slide")
+        content = slide.get("content", "")
+        md += f"# Slide {idx}: {title}\n\n"
+        md += f"**Content:**\n\n{content}\n\n"
+        if "image_prompt" in slide:
+            image_prompt = slide.get("image_prompt")
+            md += f"**Image Prompt:** {image_prompt}\n\n"
+        if "chart" in slide:
+            chart = slide.get("chart")
+            md += f"**Chart Details:**\n"
+            md += f"- Type: {chart.get('type', '')}\n"
+            md += f"- Title: {chart.get('title', '')}\n"
+            labels = chart.get("labels", [])
+            values = chart.get("values", [])
+            if labels and values:
+                md += f"- Labels: {', '.join(labels)}\n"
+                md += f"- Values: {', '.join(map(str, values))}\n"
+        md += "\n---\n\n"
+    return md
 
 # --- Streamlit App ---
-
 def main():
     st.title("AI-Driven Presentation Generator")
     st.write("Paste your compiled analysis below (including research, data, and insights).")
@@ -279,7 +231,7 @@ def main():
         analysis_text = st.text_area("Or paste your analysis text here", height=300)
 
     if analysis_text:
-        if st.button("Generate Presentation"):
+        if st.button("Generate Slide Outline and Markdown"):
             with st.spinner("Generating slide outline..."):
                 try:
                     slides_outline = generate_slide_outline(analysis_text)
@@ -288,21 +240,11 @@ def main():
                     return
             st.success("Slide outline generated successfully!")
             st.json(slides_outline)
-
-            with st.spinner("Creating PowerPoint presentation..."):
-                try:
-                    ppt_filename = create_ppt_from_outline(slides_outline)
-                except Exception as e:
-                    st.error(f"Failed to create presentation: {e}")
-                    return
-            st.success("Presentation created successfully!")
-            with open(ppt_filename, "rb") as f:
-                st.download_button(
-                    label="Download Presentation",
-                    data=f,
-                    file_name=ppt_filename,
-                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                )
+            
+            # Convert JSON outline to Markdown
+            md_output = convert_outline_to_md(slides_outline)
+            st.markdown("### Slide Outline in Markdown")
+            st.markdown(md_output)
 
 if __name__ == "__main__":
     main()
