@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import uuid
 import requests
 from io import BytesIO
 import matplotlib.pyplot as plt
@@ -11,6 +12,10 @@ from pptx.dml.color import RGBColor
 import PyPDF2  # For PDF parsing
 from bs4 import BeautifulSoup  # For HTML parsing
 
+# Additional imports for Google Slides API
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+
 # --- Configuration ---
 # Cohere configuration for text generation
 COHERE_API_KEY = st.secrets["COHERE_API_KEY"]
@@ -19,6 +24,8 @@ COHERE_TEXT_ENDPOINT = st.secrets["COHERE_TEXT_EP"]  # e.g. "https://api.cohere.
 # Gemini configuration for image generation
 GEMINI_API_KEY = st.secrets["API-KEY"]
 GEMINI_IMAGE_ENDPOINT = st.secrets["EP"]  # This endpoint should return image data
+
+# Google service account credentials are stored under st.secrets["google_service_account"]
 
 # --- Helper: Robust JSON Extraction ---
 def extract_json(text):
@@ -171,7 +178,6 @@ def generate_slide_outline(analysis_text):
         "Analysis:\n" + analysis_text + "\n\nOutput the JSON array only."
     )
     outline_text = cohere_text_generate(prompt, max_tokens=400)
-    # Check if the output is empty:
     if not outline_text:
         st.error("API Problem: The API returned an empty output for the slide outline.")
         raise ValueError("Empty output from API.")
@@ -185,7 +191,7 @@ def generate_slide_outline(analysis_text):
             st.warning("JSON was extracted using regex fallback.")
         except Exception as e2:
             st.error("Failed to extract valid JSON from the response.")
-            raise e2
+            slides = None  # signal that parsing failed
     return slides, outline_text
 
 # --- Convert Outline to Markdown ---
@@ -212,9 +218,90 @@ def convert_outline_to_md(slides):
         md += "\n---\n\n"
     return md
 
+# --- Google Slides Creation ---
+def create_google_slides(slides_outline, presentation_title):
+    # Build credentials from service account info stored in st.secrets["google_service_account"]
+    creds = service_account.Credentials.from_service_account_info(st.secrets["google_service_account"])
+    slides_service = build("slides", "v1", credentials=creds)
+    # Create a new presentation
+    presentation = slides_service.presentations().create(body={"title": presentation_title}).execute()
+    presentation_id = presentation.get("presentationId")
+    # For each slide in the outline, add a new slide with title and content text boxes
+    for slide in slides_outline:
+        slide_id = "slide_" + uuid.uuid4().hex
+        title_box_id = "title_" + uuid.uuid4().hex
+        content_box_id = "content_" + uuid.uuid4().hex
+        requests_list = [
+            {
+                "createSlide": {
+                    "objectId": slide_id,
+                    "insertionIndex": "1",
+                    "slideLayoutReference": {"predefinedLayout": "BLANK"}
+                }
+            },
+            {
+                "createShape": {
+                    "objectId": title_box_id,
+                    "shapeType": "TEXT_BOX",
+                    "elementProperties": {
+                        "pageObjectId": slide_id,
+                        "size": {
+                            "height": {"magnitude": 50, "unit": "PT"},
+                            "width": {"magnitude": 400, "unit": "PT"}
+                        },
+                        "transform": {
+                            "scaleX": 1,
+                            "scaleY": 1,
+                            "translateX": 50,
+                            "translateY": 50,
+                            "unit": "PT"
+                        }
+                    }
+                }
+            },
+            {
+                "insertText": {
+                    "objectId": title_box_id,
+                    "insertionIndex": 0,
+                    "text": slide.get("title", "Untitled Slide")
+                }
+            },
+            {
+                "createShape": {
+                    "objectId": content_box_id,
+                    "shapeType": "TEXT_BOX",
+                    "elementProperties": {
+                        "pageObjectId": slide_id,
+                        "size": {
+                            "height": {"magnitude": 200, "unit": "PT"},
+                            "width": {"magnitude": 400, "unit": "PT"}
+                        },
+                        "transform": {
+                            "scaleX": 1,
+                            "scaleY": 1,
+                            "translateX": 50,
+                            "translateY": 150,
+                            "unit": "PT"
+                        }
+                    }
+                }
+            },
+            {
+                "insertText": {
+                    "objectId": content_box_id,
+                    "insertionIndex": 0,
+                    "text": slide.get("content", "")
+                }
+            }
+        ]
+        slides_service.presentations().batchUpdate(
+            presentationId=presentation_id, body={"requests": requests_list}
+        ).execute()
+    return presentation_id
+
 # --- Streamlit App ---
 def main():
-    st.title("AI-Driven Presentation Generator")
+    st.title("AI-Driven Google Slides Generator")
     st.write("Paste your compiled analysis below (including research, data, and insights).")
 
     # Option to either upload a PDF or paste text
@@ -234,7 +321,7 @@ def main():
         analysis_text = st.text_area("Or paste your analysis text here", height=300)
 
     if analysis_text:
-        if st.button("Generate Slide Outline and Markdown"):
+        if st.button("Generate Slide Outline, Markdown, and Google Slides"):
             with st.spinner("Generating slide outline..."):
                 try:
                     slides_outline, raw_outline = generate_slide_outline(analysis_text)
@@ -246,6 +333,16 @@ def main():
                 md_output = convert_outline_to_md(slides_outline)
                 st.markdown("### Slide Outline in Markdown")
                 st.markdown(md_output)
+                with st.spinner("Creating Google Slides presentation..."):
+                    try:
+                        presentation_title = "Generated Presentation"
+                        presentation_id = create_google_slides(slides_outline, presentation_title)
+                        presentation_url = f"https://docs.google.com/presentation/d/{presentation_id}/edit"
+                    except Exception as e:
+                        st.error(f"Failed to create Google Slides presentation: {e}")
+                        return
+                st.success("Google Slides presentation created successfully!")
+                st.markdown(f"**Presentation URL:** [Click Here]({presentation_url})")
             else:
                 st.warning("Using raw Cohere output as Markdown since JSON parsing failed:")
                 st.markdown("### Raw Outline Markdown")
