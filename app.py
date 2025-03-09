@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import requests
 from io import BytesIO
@@ -41,7 +42,6 @@ def gemini_text_generate(prompt, max_tokens=150, temperature=0.6):
         st.error("Gemini API returned an empty response.")
         raise ValueError("Gemini API returned an empty response.")
 
-    # Check the Content-Type header
     content_type = response.headers.get("Content-Type", "").lower()
     if "application/json" in content_type:
         try:
@@ -56,7 +56,7 @@ def gemini_text_generate(prompt, max_tokens=150, temperature=0.6):
             raise ValueError("Gemini API did not return any generated text.")
         return generated_text
     elif "text/html" in content_type or raw_text.lower().startswith("<!doctype html"):
-        # Parse the HTML and extract text
+        # Parse HTML to extract text
         soup = BeautifulSoup(raw_text, "html.parser")
         parsed_text = soup.get_text(separator="\n", strip=True)
         if not parsed_text:
@@ -64,7 +64,6 @@ def gemini_text_generate(prompt, max_tokens=150, temperature=0.6):
             raise ValueError("Parsed HTML is empty.")
         return parsed_text
     else:
-        # Fallback: return raw_text if we don't recognize the content type.
         return raw_text
 
 def gemini_image_generate(prompt, width=512, height=512):
@@ -85,7 +84,6 @@ def gemini_image_generate(prompt, width=512, height=512):
         st.error(str(e))
         raise
 
-    # For image responses, if HTML is returned, extract text to notify the error.
     raw_data = response.content
     if raw_data.strip().lower().startswith(b"<!doctype html>"):
         html_text = BeautifulSoup(raw_data, "html.parser").get_text(separator="\n", strip=True)
@@ -157,7 +155,16 @@ def generate_slide_outline(analysis_text):
     except json.JSONDecodeError as e:
         st.error("Error parsing JSON from Gemini response:")
         st.text(outline_text)
-        raise e
+        # Attempt to extract a JSON substring from the response using regex
+        json_match = re.search(r'(\[.*\])', outline_text, re.DOTALL)
+        if json_match:
+            try:
+                slides = json.loads(json_match.group(1))
+            except Exception as e2:
+                st.error("Failed to extract JSON using regex.")
+                raise e2
+        else:
+            raise e
     return slides
 
 # --- PowerPoint Generation ---
